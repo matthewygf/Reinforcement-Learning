@@ -67,7 +67,9 @@ def main():
                 # we should use neural network to choose for us.
                 action_dist = sess.run(m_agent.output, feed_dict={m_agent.current_s:[observation]})
                 # randomly produce an action in uniform
-                action = np.random.choice(action_dist[0])
+                sum = action_dist[0].sum()
+                p = action_dist[0] / sum 
+                action = np.random.choice(action_dist[0], p=p)
                 action = np.argmax(action_dist == action)
 
                 # lets take a step
