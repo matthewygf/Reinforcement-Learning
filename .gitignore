@@ -5,3 +5,7 @@ __pycache__
 /**/.vscode
 .vscode
 .ipynb_checkpoints
+/**/checkpoints
+/checkpoints
+/**/mlsh_ckpt
+/**/mlsh_log
