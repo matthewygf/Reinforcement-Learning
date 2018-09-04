@@ -36,8 +36,9 @@ def main(_):
     # initialize env
     goals_set_small = [LOWER_RIGHT_LADDER_SMALL, KEY_SMALL, LOWER_RIGHT_LADDER_SMALL, RIGHT_DOOR_SMALL]
     atari_env = AtariEnv(monitor, goals_set_small)
+    
 
-    # screenshot our goals
+    # TODO: need to fix this too, screenshot our goals
     # goals_set_large = [LOWER_RIGHT_LADDER, KEY, LOWER_RIGHT_LADDER, RIGHT_DOOR]
     # screen_shot_subgoal(atari_env, goals_set_large)
 
@@ -46,7 +47,6 @@ def main(_):
     # stack 4 frames into one observation
     # env = wrapper.wrap_deepmind(atari_env, frame_stack=True, scale=True)
 
-    print(env.observation_space)
     # TODO: verified whether to use _SMALL
     
     

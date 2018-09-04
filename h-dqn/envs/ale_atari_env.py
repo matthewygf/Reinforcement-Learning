@@ -122,7 +122,7 @@ class AtariEnv(gym.GoalEnv):
     """
 
     def render(self, mode='human'):
-        img = self._get_image()
+        img = self._get_image() # TODO: Fix this.
         if mode == 'rgb_array':
             return img
         elif mode == 'human':
