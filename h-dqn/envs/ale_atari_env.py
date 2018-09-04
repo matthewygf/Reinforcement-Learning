@@ -20,9 +20,10 @@ def to_ram(ale):
     ale.getRAM(ram)
     return ram
 
+class AtariEnv(gym.GoalEnv):
+    metadata = {'render.modes': ['human', 'rgb_array']}
 
-class AtariEnv(gym.Env):
-    def __init__(self, monitor, obs_type='image', frameskip=(2, 5), repeat_action_probability=0.):
+    def __init__(self, monitor, goals, obs_type='image', frameskip=(2, 5), repeat_action_probability=0.):
         self.game_path = atari_py.get_game_path(monitor.game_name)
 
         assert obs_type in ('ram', 'image')
@@ -45,11 +46,27 @@ class AtariEnv(gym.Env):
         self._action_set = self.ale.getMinimalActionSet()
         self.action_space = spaces.Discrete(len(self._action_set))
 
+        # goals specific
+        self._goals_set = goals
+        self.goals_space = spaces.Discrete(len(self._goals_set))
+        self.desired_goal = 0 # we set and tell the agent to achieve this desired_goal.
+        self.achieved_goal = 0 # we should keep track of which goal it currently achieved. 
+        self.goals_history = [] # can keep track of how it achieved the set of goals to the currently achieved_goal
+
         (screen_width, screen_hight) = self.ale.getScreenDims()
+
         if self._obs_type == 'ram':
-            self.observation_space = spaces.Box(low=0, high=255, dtype=np.uint8, shape=(128,))
+            self.observation_space = spaces.Dict({
+                'observation': spaces.Box(low=0, high=255, shape=(screen_hight, screen_width, 3), dtype=np.uint8),
+                'achieved_goal': spaces.Discrete(1),
+                'desired_goal': spaces.Discrete(1)
+            })
         elif self._obs_type == 'image':
-            self.observation_space = spaces.Box(low=0, high=255, shape=(screen_hight, screen_width, 3), dtype=np.uint8)
+            self.observation_space = spaces.Dict({
+                'observation': spaces.Box(low=0, high=255, shape=(screen_hight, screen_width, 3), dtype=np.uint8),
+                'achieved_goal': spaces.Discrete(1),
+                'desired_goal': spaces.Discrete(1)
+            })
         else:
             raise error.Error('Unrecognized observation type: {}'.format(self._obs_type))
 
@@ -63,7 +80,8 @@ class AtariEnv(gym.Env):
         self.ale.setInt(b'random_seed', seed2)
         self.ale.loadROM(self.game_path)
         return [seed1, seed2]
-
+        
+    """
     def step(self, a):
         reward = 0.0
         action = self._action_set[a]
@@ -77,7 +95,6 @@ class AtariEnv(gym.Env):
         ob = self._get_obs()
 
         return ob, reward, self.ale.game_over(), {"ale.lives": self.ale.lives()}
-
     def _get_image(self):
         return self.ale.getScreenRGB2()
 
@@ -98,7 +115,11 @@ class AtariEnv(gym.Env):
     # return: (states, observations)
     def reset(self):
         self.ale.reset_game()
+        self.desired_goal = 0
+        self.achieved_goal = 0
+        self.goals_history = []
         return self._get_obs()
+    """
 
     def render(self, mode='human'):
         img = self._get_image()
@@ -170,6 +191,9 @@ class AtariEnv(gym.Env):
         state_ref = self.ale.decodeState(state)
         self.ale.restoreSystemState(state_ref)
         self.ale.deleteState(state_ref)
+
+    def compute_reward(self, achieved_goal, desired_goal, info):
+        pass
 
 ACTION_MEANING = {
     0 : "NOOP",

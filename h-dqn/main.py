@@ -1,14 +1,17 @@
 import os
 import argparse
 import numpy as np
-import tensorflow as tf
-from utils.tensorboard import TensorboardVisualizer
+
 from utils.monitor import Monitor
-from envs.env_with_goals import EnvWithGoals
+from envs.ale_atari_env import AtariEnv
 import envs.env_wrapper as wrapper
-# computer vision
+
+# computer vision packages 
 from PIL import Image, ImageDraw
 
+# tensorflow stuffs
+import tensorflow as tf
+from utils.tensorboard import TensorboardVisualizer
 FLAGS = tf.app.flags.FLAGS
 
 # GOALS DEFINED
@@ -31,18 +34,22 @@ def main(_):
     visualizer.initialize(log_dir, None)
 
     # initialize env
-    atari_env = EnvWithGoals(monitor)
-    # we should probably follow deepmind style env
-    env = wrapper.wrap_deepmind(atari_env, frame_stack=True, scale=True)
-    
-    print (env.observation_space)
+    goals_set_small = [LOWER_RIGHT_LADDER_SMALL, KEY_SMALL, LOWER_RIGHT_LADDER_SMALL, RIGHT_DOOR_SMALL]
+    atari_env = AtariEnv(monitor, goals_set_small)
 
-    # set up our goals inside the environment 
-    # TODO: verified whether to use _SMALL
-    
     # screenshot our goals
     # goals_set_large = [LOWER_RIGHT_LADDER, KEY, LOWER_RIGHT_LADDER, RIGHT_DOOR]
     # screen_shot_subgoal(atari_env, goals_set_large)
+
+    # TODO: best thing to do is to wrap it in gym env registry
+    # we should probably follow deepmind style env
+    # stack 4 frames into one observation
+    # env = wrapper.wrap_deepmind(atari_env, frame_stack=True, scale=True)
+
+    print(env.observation_space)
+    # TODO: verified whether to use _SMALL
+    
+    
 
     # create q networks for meta controller, sub controller
 
@@ -55,7 +62,7 @@ def main(_):
 def screen_shot_subgoal(env, goals, multiplier=1):
     """
     params:
-        env - atari_env wrapper
+        env - AtariEnv wrapper
         goals - list of goal coordinate in [ (x1,y1), (x2,y2) ]
         multiplier - just to quickly scale the coordinate
     """
