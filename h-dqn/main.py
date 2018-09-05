@@ -6,6 +6,8 @@ from utils.monitor import Monitor
 from envs.ale_atari_env import AtariEnv
 import envs.env_wrapper as wrapper
 
+from deepq.replay_buffer import ReplayBuffer
+
 # computer vision packages 
 from PIL import Image, ImageDraw
 
@@ -14,17 +16,7 @@ import tensorflow as tf
 from utils.tensorboard import TensorboardVisualizer
 FLAGS = tf.app.flags.FLAGS
 
-# GOALS DEFINED
-# TODO: how do we spot goals ?! 
-# in 210, 160 pixels 
-LOWER_RIGHT_LADDER = [(130, 142), (140, 148)]
-KEY = [(12, 100), (24, 120)]
-RIGHT_DOOR = [(130, 50), (144, 80)]
-# in 84, 84 pixels ?
-# from https://github.com/hoangminhle/hierarchical_IL_RL.git
-LOWER_RIGHT_LADDER_SMALL = [(69, 68), (73, 71)]
-KEY_SMALL = [(7, 41), (11, 45)]
-RIGHT_DOOR_SMALL = [(70, 20), (73, 35)]
+EXP_MEMORY_SIZE = 50000
 
 def main(_):
     # create visualizer
@@ -34,22 +26,16 @@ def main(_):
     visualizer.initialize(log_dir, None)
 
     # initialize env
-    goals_set_small = [LOWER_RIGHT_LADDER_SMALL, KEY_SMALL, LOWER_RIGHT_LADDER_SMALL, RIGHT_DOOR_SMALL]
-    atari_env = AtariEnv(monitor, goals_set_small)
-    
+    atari_env = AtariEnv(monitor)
+    # screen_shot_subgoal(atari_env)
 
-    # TODO: need to fix this too, screenshot our goals
-    # goals_set_large = [LOWER_RIGHT_LADDER, KEY, LOWER_RIGHT_LADDER, RIGHT_DOOR]
-    # screen_shot_subgoal(atari_env, goals_set_large)
+    replay_buffer = ReplayBuffer(EXP_MEMORY_SIZE)
 
-    # TODO: best thing to do is to wrap it in gym env registry
     # we should probably follow deepmind style env
-    # stack 4 frames into one observation
-    # env = wrapper.wrap_deepmind(atari_env, frame_stack=True, scale=True)
-
+    # stack 4 frames and scale float
+    env = wrapper.wrap_deepmind(atari_env, frame_stack=True, scale=True)
     # TODO: verified whether to use _SMALL
-    
-    
+    # env.compute_reward(0,0, None)
 
     # create q networks for meta controller, sub controller
 
@@ -59,23 +45,13 @@ def main(_):
 
     # count rewards, states, actions, goals
 
-def screen_shot_subgoal(env, goals, multiplier=1):
+def screen_shot_subgoal(env):
     """
     params:
-        env - AtariEnv wrapper
-        goals - list of goal coordinate in [ (x1,y1), (x2,y2) ]
-        multiplier - just to quickly scale the coordinate
+        env - AtariEnv wrapper, gym.GoalEnv specifically
     """
-    init_screen = env.ale.getScreenRGB() # 210, 160, 3
+    init_screen = env._get_image(show_goals=True) # 210, 160, 3
     image = Image.fromarray(init_screen, mode='RGB')
-    image.save('init_screen.png')
-    image = Image.open('init_screen.png')
-    draw = ImageDraw.Draw(image)
-    for i in range(len(goals)):
-        coordinates = []
-        for j in range(len(goals[i])):
-            coordinates.append(tuple(multiplier * x for x in goals[i][j]))
-        draw.rectangle(coordinates, outline='white')
     image.save('subgoal_boxes.png')
 
 

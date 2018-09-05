@@ -136,8 +136,23 @@ class WarpFrame(gym.ObservationWrapper):
         gym.ObservationWrapper.__init__(self, env)
         self.width = 84
         self.height = 84
-        self.observation_space = spaces.Box(low=0, high=255,
-            shape=(self.height, self.width, 1), dtype=np.uint8)
+
+        # HACK only for goal Env
+        if isinstance(env.unwrapped, gym.GoalEnv):
+            import copy
+            origin_dict = copy.deepcopy(env.observation_space)
+            resized_observation = spaces.Box(low=0, high=255,
+                shape=(self.height, self.width, 1), dtype=np.uint8)
+            
+            # HACK assuming only have 1 currently desired goal and 1 currently (recently) achieved
+            self.observation_space = spaces.Dict({
+                'observation' : resized_observation,
+                'desired_goal' : spaces.Discrete(1),
+                'achieved_goal' : spaces.Discrete(1)
+            })
+        else:
+            self.observation_space = spaces.Box(low=0, high=255,
+                shape=(self.height, self.width, 1), dtype=np.uint8)
 
     def observation(self, frame):
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
@@ -157,8 +172,22 @@ class FrameStack(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
         self.k = k
         self.frames = deque([], maxlen=k)
-        shp = env.observation_space.shape
-        self.observation_space = spaces.Box(low=0, high=255, shape=(shp[0], shp[1], shp[2] * k), dtype=env.observation_space.dtype)
+        # HACK only for goal Env
+        if isinstance(env.unwrapped, gym.GoalEnv):
+            observation = env.observation_space.spaces['observation']
+            shp = observation.shape
+            resized_observation = spaces.Box(low=0, high=255,
+                shape=(shp[0], shp[1], shp[2] * k), dtype=observation.dtype)
+            
+            # HACK assuming only have 1 currently desired goal and 1 currently (recently) achieved
+            self.observation_space = spaces.Dict({
+                'observation' : resized_observation,
+                'desired_goal' : spaces.Discrete(1),
+                'achieved_goal' : spaces.Discrete(1)
+            })
+        else:
+            shp = env.observation_space.shape
+            self.observation_space = spaces.Box(low=0, high=255, shape=(shp[0], shp[1], shp[2] * k), dtype=env.observation_space.dtype)
 
     def reset(self):
         ob = self.env.reset()
@@ -178,7 +207,20 @@ class FrameStack(gym.Wrapper):
 class ScaledFloatFrame(gym.ObservationWrapper):
     def __init__(self, env):
         gym.ObservationWrapper.__init__(self, env)
-        self.observation_space = gym.spaces.Box(low=0, high=1, shape=env.observation_space.shape, dtype=np.float32)
+
+        # HACK only for goal Env
+        if isinstance(env.unwrapped, gym.GoalEnv):
+            resized_observation = spaces.Box(low=0, high=1,
+                shape=env.observation_space.spaces['observation'].shape, dtype=np.float32)
+            
+            # HACK assuming only have 1 currently desired goal and 1 currently (recently) achieved
+            self.observation_space = spaces.Dict({
+                'observation' : resized_observation,
+                'desired_goal' : spaces.Discrete(1),
+                'achieved_goal' : spaces.Discrete(1)
+            })
+        else:
+            self.observation_space = gym.spaces.Box(low=0, high=1, shape=env.observation_space.shape, dtype=np.float32)
 
     def observation(self, observation):
         # careful! This undoes the memory optimization, use

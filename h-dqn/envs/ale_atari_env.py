@@ -14,27 +14,23 @@ try:
 except ImportError as e:
     raise error.DependencyNotInstalled("{}. (HINT: you can install Atari dependencies by running 'pip install gym[atari]'.)".format(e))
 
-def to_ram(ale):
-    ram_size = ale.getRAMSize()
-    ram = np.zeros((ram_size),dtype=np.uint8)
-    ale.getRAM(ram)
-    return ram
-
+# HACK At the moment this env is assumed to be montezuma_revenge
+# might as well be Montezuma_revenge env :/
 class AtariEnv(gym.GoalEnv):
     metadata = {'render.modes': ['human', 'rgb_array']}
 
-    def __init__(self, monitor, goals, obs_type='image', frameskip=(2, 5), repeat_action_probability=0.):
+    def __init__(self, monitor, frameskip=(2, 5), repeat_action_probability=0.):
         self.game_path = atari_py.get_game_path(monitor.game_name)
-
-        assert obs_type in ('ram', 'image')
 
         if not os.path.exists(self.game_path):
             raise IOError('You asked for game %s but path %s does not exist'%(monitor.game_name, self.game_path))
         
-        self._obs_type = obs_type
+        self._obs_type = 'image' # HACK to image for now.
         self.frameskip = frameskip
         self.ale = atari_py.ALEInterface()
         self.viewer = None
+        # added monitor to keep track of things
+        self.monitor = monitor
 
         # Tune (or disable) ALE's action repeat:
         # https://github.com/openai/gym/issues/349
@@ -47,14 +43,25 @@ class AtariEnv(gym.GoalEnv):
         self.action_space = spaces.Discrete(len(self._action_set))
 
         # goals specific
-        self._goals_set = goals
+        self._goals_set = monitor.goals_set_small # 84x84
+        self._goals_center = monitor.goals_center
         self.goals_space = spaces.Discrete(len(self._goals_set))
-        self.desired_goal = 0 # we set and tell the agent to achieve this desired_goal.
-        self.achieved_goal = 0 # we should keep track of which goal it currently achieved. 
+        self.desired_goal = -1 # we set and tell the agent to achieve this desired_goal.
+        self.achieved_goal = -1 # we should keep track of which goal it currently achieved. 
         self.goals_history = [] # can keep track of how it achieved the set of goals to the currently achieved_goal
+
+        # we need to calculate whether agent achieve the goal so we need to keep track of agent loc
+        # HACK only montezuma_revenge specific right now
+        if monitor.game_name == 'montezuma_revenge':
+            self.agent_origin = [42, 33]
+            self.agent_last_x = 42
+            self.agent_last_y = 33
 
         (screen_width, screen_hight) = self.ale.getScreenDims()
 
+        self.init_screen = self.ale.getScreenGrayscale()
+
+        # Don't think i will use this 
         if self._obs_type == 'ram':
             self.observation_space = spaces.Dict({
                 'observation': spaces.Box(low=0, high=255, shape=(screen_hight, screen_width, 3), dtype=np.uint8),
@@ -80,8 +87,7 @@ class AtariEnv(gym.GoalEnv):
         self.ale.setInt(b'random_seed', seed2)
         self.ale.loadROM(self.game_path)
         return [seed1, seed2]
-        
-    """
+ 
     def step(self, a):
         reward = 0.0
         action = self._action_set[a]
@@ -92,34 +98,58 @@ class AtariEnv(gym.GoalEnv):
             num_steps = self.np_random.randint(self.frameskip[0], self.frameskip[1])
         for _ in range(num_steps):
             reward += self.ale.act(action)
+
         ob = self._get_obs()
-
+        # TODO: here returns the extrinsic reward
+        # we should look at ways for intrinsic reward
         return ob, reward, self.ale.game_over(), {"ale.lives": self.ale.lives()}
-    def _get_image(self):
-        return self.ale.getScreenRGB2()
 
-    def _get_ram(self):
-        return to_ram(self.ale)
+    def _get_obs(self):
+        # TODO : how to calculate achieved / desired
+        if self._obs_type == 'ram':
+            raise NotImplementedError
+        elif self._obs_type == 'image':
+            img = self._get_image()
+        ob = {}
+        ob['observation'] = img
+        ob['achieved_goal'] = self.achieved_goal
+        ob['desired_goal'] = self.desired_goal
+        return ob
 
     @property
     def _n_actions(self):
         return len(self._action_set)
 
-    def _get_obs(self):
-        if self._obs_type == 'ram':
-            return self._get_ram()
-        elif self._obs_type == 'image':
-            img = self._get_image()
-        return img
+    """
+    def _get_ram(self):
+        return to_ram(self.ale)
+    """
 
     # return: (states, observations)
     def reset(self):
         self.ale.reset_game()
-        self.desired_goal = 0
-        self.achieved_goal = 0
+        self.desired_goal = -1
+        self.achieved_goal = -1
         self.goals_history = []
+        # HACK for montezuma
+        if self.monitor.game_name == 'montezuma_revenge':
+            self.agent_last_x = self.agent_origin[0]
+            self.agent_last_y = self.agent_origin[1]
         return self._get_obs()
-    """
+
+    def _get_image(self, show_goals=True):
+        screen = self.ale.getScreenRGB2()
+        if show_goals and self.monitor is not None:
+            for goal in self.monitor.goals_set_large:
+                x1 = goal[0][0]
+                x2 = goal[1][0]
+                y1 = goal[0][1]
+                y2 = goal[1][1]
+                screen[y1,x1:x2,:] = 255
+                screen[y2,x1:x2,:] = 255
+                screen[y1:y2,x1,:] = 255
+                screen[y1:y2,x2,:] = 255
+        return screen
 
     def render(self, mode='human'):
         img = self._get_image() # TODO: Fix this.
@@ -192,8 +222,78 @@ class AtariEnv(gym.GoalEnv):
         self.ale.restoreSystemState(state_ref)
         self.ale.deleteState(state_ref)
 
+    # Goals - intrinsic reward ? 
     def compute_reward(self, achieved_goal, desired_goal, info):
-        pass
+        assert achieved_goal < len(self._goals_center)
+        assert desired_goal < len(self._goals_center)
+
+        if (achieved_goal == -1):
+            achieved_goal_location = self.agent_origin
+        else:
+            # get our last achieved goal last location
+            achieved_goal_location = self._goals_center[achieved_goal]
+        desired_goal_location = self._goals_center[desired_goal]
+        agent_x, agent_y = self.get_agent_loc()
+
+        desired_goal_dist_diff_x = desired_goal_location[0] - agent_x
+        desired_goal_dist_diff_y = desired_goal_location[1] - agent_y
+        desired_goal_dist = np.sqrt(np.power(desired_goal_dist_diff_x, 2) + np.power(desired_goal_dist_diff_y, 2))
+
+        achieved_goal_dist_diff_x = achieved_goal_location[0] - agent_x
+        achieved_goal_dist_diff_y = achieved_goal_location[1] - agent_y
+        achieved_goal_dist = np.sqrt(np.power(achieved_goal_dist_diff_x, 2) + np.power(achieved_goal_dist_diff_y, 2))
+
+        between_goal_dist_diff_x = desired_goal_dist[0] - achieved_goal_dist[0]
+        between_goal_dist_diff_y = desired_goal_dist[1] - achieved_goal_dist[1]
+        between_goal_dist = np.sqrt(np.power(between_goal_dist_diff_x, 2) + np.power(between_goal_dist_diff_y, 2))
+
+        # normalize how far the agent is to the next goal.
+        return 0.001 * (achieved_goal_dist - desired_goal_dist) / between_goal_dist
+
+    def get_agent_loc(self):
+        # HACK: Montezuma_revenge specific
+        img = self.ale.getScreenRGB2()
+        agent = [200, 72, 72] # RGB values of the agent
+        mask = np.zeros(np.shape(img))
+        mask[:,:, 0] = agent[0] # R channel
+        mask[:,:, 1] = agent[1] # G channel
+        mask[:,:, 2] = agent[2] # B channel
+
+        # findout where the agent is
+        diff = img - mask 
+        indexs = np.where(diff == 0)
+        # makes everything black except agent to white
+        diff[np.where(diff < 0)] = 0
+        diff[np.where(diff > 0)] = 0
+        diff[indexs] = 255
+
+        if (np.shape(indexs[0])[0] == 0):
+            print("---------------------- diff index shape 0 is 0")
+            mean_x = self.agent_last_x
+            mean_y = self.agent_last_y
+        else:
+            mean_y = np.sum(indexs[0]) / np.shape(indexs[0])[0]
+            mean_x = np.sum(indexs[1]) / np.shape(indexs[1])[0]
+        self.agent_last_x = mean_x
+        self.agent_last_y = mean_y
+        return (mean_x, mean_y)
+
+    def reached_goal(self, desired_goal):
+        desired_goal_pos = self._goals_set[desired_goal]
+        screen_with_goals = self.init_screen
+        current_state_screen = self.ale.getScreenGrayscale()
+        count = 0
+        for x in range(desired_goal_pos[0][0], desired_goal_pos[1][0]):
+            for y in range(desired_goal_pos[0][1], desired_goal_pos[1][1]):
+                if screen_with_goals[y][x] != current_state_screen[y][x]: # screen is [y,x,c]
+                    count += 1
+        # 30 is total number of pixels of the agent
+        if float(count) / 30 > 0.3:
+            # consider agent has overlap enough pixels
+            self.goals_history.append(desired_goal)
+            self.achieved_goal = desired_goal
+            return True
+        return False
 
 ACTION_MEANING = {
     0 : "NOOP",
