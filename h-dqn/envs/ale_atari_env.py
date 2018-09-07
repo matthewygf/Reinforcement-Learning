@@ -9,6 +9,8 @@ from gym.utils import seeding
 import numpy as np
 import os
 
+import cv2
+
 try:
     import atari_py
 except ImportError as e:
@@ -137,10 +139,16 @@ class AtariEnv(gym.GoalEnv):
             self.agent_last_y = self.agent_origin[1]
         return self._get_obs()
 
-    def _get_image(self, show_goals=True):
+    def _get_image(self, show_goals=True, use_small=False):
         screen = self.ale.getScreenRGB2()
+        if use_small:
+            goals = self.monitor.goals_set_small
+            screen = cv2.resize(screen, (84, 84))
+        else:
+            goals = self.monitor.goals_set_large
+
         if show_goals and self.monitor is not None:
-            for goal in self.monitor.goals_set_large:
+            for goal in goals:
                 x1 = goal[0][0]
                 x2 = goal[1][0]
                 y1 = goal[0][1]
