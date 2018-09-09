@@ -2,10 +2,12 @@ import tensorflow as tf
 from gym import spaces
 import utils.tf_util as U
 
+active_fn = tf.nn.relu
+
 class Q_network(object):
     def __init__(self, 
                  observation_space, 
-                 action_space,
+                 num_outputs,
                  optimizer,
                  scope = '', # when we have multiple option, let's include this.
                  double = True, 
@@ -14,8 +16,6 @@ class Q_network(object):
                  hidden_nodes = [256],
                  data_format='channels_last',
                  grad_norm_clipping=None):
-        active_fn = tf.nn.relu
-        num_actions = action_space.n
         with tf.variable_scope(scope+'/q_networks', reuse=tf.AUTO_REUSE):
             # set up placeholder 
             # observation should be scaled already
@@ -23,7 +23,8 @@ class Q_network(object):
                 ob = observation_space.spaces['observation']
             else:
                 ob = observation_space
-
+            
+            # the observation could be goal encoded. i.e. binary mask on the goal
             self.obs_t_input = tf.placeholder(tf.float32, shape=(None, )+ob.shape, name='obs_t')
             self.action_t = tf.placeholder(tf.int32, shape=[None], name='action')
             self.reward_t = tf.placeholder(tf.float32, shape=[None], name='reward')
@@ -45,7 +46,7 @@ class Q_network(object):
                         action_out = tf.layers.dense(action_out, hidden_node, activation=None)
                         # open AI uses layer_normalization here
                         action_out = active_fn(action_out)
-                    action_scores = tf.layers.dense(action_out, num_actions, activation=None)
+                    action_scores = tf.layers.dense(action_out, num_outputs, activation=None)
                 
                 # if dueling then we can compute the state values separately to get our final Q.
                 if dueling:
@@ -76,7 +77,7 @@ class Q_network(object):
                         action_out_t = tf.layers.dense(action_out_t, hidden_node, activation=None)
                         # open AI uses layer_normalization here
                         action_out_t = active_fn(action_out_t)
-                    action_scores_t = tf.layers.dense(action_out_t, num_actions, activation=None)
+                    action_scores_t = tf.layers.dense(action_out_t, num_outputs, activation=None)
                 
                 # if dueling then we can compute the state values separately to get our final Q.
                 if dueling:
@@ -96,11 +97,11 @@ class Q_network(object):
             # receive online qnetwork estimate for the next state 
             self.online_q_target = tf.placeholder(shape=self.q_out.shape, dtype=tf.float32)
             # calculate the q_value for our actual action
-            self.q_t_selected = tf.reduce_sum(self.q_out * tf.one_hot(self.action_t, num_actions), 1)
+            self.q_t_selected = tf.reduce_sum(self.q_out * tf.one_hot(self.action_t, num_outputs), 1)
 
             if double:
                 q_tp1_with_online = tf.argmax(self.online_q_target, 1)
-                q_tp1_best = tf.reduce_sum(self.q_out_t * tf.one_hot(q_tp1_with_online, num_actions), 1)
+                q_tp1_best = tf.reduce_sum(self.q_out_t * tf.one_hot(q_tp1_with_online, num_outputs), 1)
             else:
                 q_tp1_best = tf.reduce_max(self.q_out_t, 1)
 
@@ -111,8 +112,8 @@ class Q_network(object):
 
             # compute td error
             # actual q value - return q value from environment and discounted
-            td_error = self.q_t_selected - q_t_selected_target
-            errors = U.huber_loss(td_error)
+            self.td_error = self.q_t_selected - q_t_selected_target
+            errors = U.huber_loss(self.td_error)
             weighted_error = tf.reduce_mean(self.importance_weight * errors)
 
             # we are just under our default scope name
