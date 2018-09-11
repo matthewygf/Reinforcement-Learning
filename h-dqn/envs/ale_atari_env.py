@@ -50,7 +50,7 @@ class AtariEnv(gym.GoalEnv):
         self.goals_space = spaces.Discrete(len(self._goals_set))
         self.desired_goal = -1 # we set and tell the agent to achieve this desired_goal.
         self.achieved_goal = -1 # we should keep track of which goal it currently achieved. 
-        self.goals_history = [] # can keep track of how it achieved the set of goals to the currently achieved_goal
+        self.goals_history = set() # can keep track of how it achieved the set of goals to the currently achieved_goal
 
         # we need to calculate whether agent achieve the goal so we need to keep track of agent loc
         # HACK only montezuma_revenge specific right now
@@ -102,16 +102,15 @@ class AtariEnv(gym.GoalEnv):
             reward += self.ale.act(action)
 
         ob = self._get_obs()
-        # TODO: here returns the extrinsic reward
-        # we should look at ways for intrinsic reward
+        # NOTE: here returns the extrinsic reward
         return ob, reward, self.ale.game_over(), {"ale.lives": self.ale.lives()}
 
-    def _get_obs(self):
+    def _get_obs(self, show_goals=False):
         # TODO : how to calculate achieved / desired
         if self._obs_type == 'ram':
             raise NotImplementedError
         elif self._obs_type == 'image':
-            img = self._get_image()
+            img = self._get_image(show_goals=show_goals)
         ob = {}
         ob['observation'] = img
         ob['achieved_goal'] = self.achieved_goal
@@ -128,18 +127,19 @@ class AtariEnv(gym.GoalEnv):
     """
 
     # return: (states, observations)
-    def reset(self):
+    def reset(self, show_goals=False):
         self.ale.reset_game()
         self.desired_goal = -1
         self.achieved_goal = -1
-        self.goals_history = []
+        self.goals_history = set()
+        print("------ game reset ------")
         # HACK for montezuma
         if self.monitor.game_name == 'montezuma_revenge':
             self.agent_last_x = self.agent_origin[0]
             self.agent_last_y = self.agent_origin[1]
-        return self._get_obs()
+        return self._get_obs(show_goals=show_goals)
 
-    def _get_image(self, show_goals=True, use_small=False):
+    def _get_image(self, show_goals=False, use_small=False):
         screen = self.ale.getScreenRGB2()
         if use_small:
             goals = self.monitor.goals_set_small
@@ -147,7 +147,11 @@ class AtariEnv(gym.GoalEnv):
         else:
             goals = self.monitor.goals_set_large
 
-        if show_goals and self.monitor is not None:
+        # either way we already have goals here
+        if self.desired_goal > -1:
+            goals = [goals[self.desired_goal]]
+
+        if show_goals:
             for goal in goals:
                 x1 = goal[0][0]
                 x2 = goal[1][0]
@@ -158,6 +162,40 @@ class AtariEnv(gym.GoalEnv):
                 screen[y1:y2,x1,:] = 255
                 screen[y1:y2,x2,:] = 255
         return screen
+
+    def _add_goal_mask(self, observation, desired_goal, frame_stacked=True, use_small=True, scaled_float=True):
+
+        if use_small:
+            goals = self.monitor.goals_set_small
+        else:
+            goals = self.monitor.goals_set_large
+        
+        assert desired_goal < len(goals)
+
+        ob_with_g = observation
+
+        if scaled_float:
+            white = 1
+        else:
+            white = 255
+        
+        goal = goals[desired_goal]
+        x1 = goal[0][0]
+        x2 = goal[1][0]
+        y1 = goal[0][1]
+        y2 = goal[1][1]
+        if frame_stacked:
+            # put the mask on all observation
+            ob_with_g[y1,x1:x2,:] = white
+            ob_with_g[y2,x1:x2,:] = white
+            ob_with_g[y1:y2,x1,:] = white
+            ob_with_g[y1:y2,x2,:] = white
+        else:
+            ob_with_g[y1,x1:x2] = white
+            ob_with_g[y2,x1:x2] = white
+            ob_with_g[y1:y2,x1] = white
+            ob_with_g[y1:y2,x2] = white
+        return ob_with_g
 
     def render(self, mode='human'):
         img = self._get_image() # TODO: Fix this.
@@ -298,7 +336,7 @@ class AtariEnv(gym.GoalEnv):
         # 30 is total number of pixels of the agent
         if float(count) / 30 > 0.3:
             # consider agent has overlap enough pixels
-            self.goals_history.append(desired_goal)
+            self.goals_history.add(desired_goal)
             self.achieved_goal = desired_goal
             return True
         return False

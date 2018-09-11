@@ -41,7 +41,7 @@ class MetaController(object):
                                                               lambda: self.update_eps_t, 
                                                               lambda: self.epsilon))
     
-    def act(self, sess, observations, stochastic=True, update_eps = -1):
+    def sample_act(self, sess, observations, stochastic=True, update_eps = -1):
         goal, _ = sess.run([self.output_goals, self.updates_eps_op], 
                              feed_dict={self.network.obs_t_input: observations,
                                         self.stochastic_t: stochastic,
@@ -101,7 +101,7 @@ class Controller(object):
                                                               lambda: self.update_eps_t, 
                                                               lambda: self.epsilon))
             
-    def act(self, sess, observations, stochastic=True, update_eps = -1):
+    def sample_act(self, sess, observations, stochastic=True, update_eps = -1):
         action, _ = sess.run([self.output_actions, self.updates_eps_op], 
                              feed_dict={self.network.obs_t_input: observations,
                                         self.stochastic_t: stochastic,

@@ -1,12 +1,17 @@
 import tensorflow as tf
 
 tf.app.flags.DEFINE_string('log_dir', '/tmp/log_dir',
-                           """Directory where to write event logs """
-                           """and checkpoint.""")
+                           """Directory where to write event logs """)
+
+tf.app.flags.DEFINE_string('ckpt_dir', 'tmp/ckpt_dir',
+                            """Directory where to write model ckpt""")
 
 tf.app.flags.DEFINE_string('game_name', 'montezuma_revenge',
                            """Directory where to write event logs """
                            """and checkpoint.""")
+
+tf.app.flags.DEFINE_integer('num_timesteps', int(2e6),
+                            """total num of timesteps""")
 
 # GOALS DEFINED
 # TODO: how do we spot goals ?! 
@@ -24,7 +29,9 @@ class Monitor(object):
     def __init__(self, params):
         self.params = params
         self.log_dir = self.params.log_dir
+        self.ckpt_dir = self.params.ckpt_dir
         self.game_name = self.params.game_name
+        self.num_timesteps = self.params.num_timesteps
 
         self.goals_set_large = [LOWER_RIGHT_LADDER, KEY, LOWER_RIGHT_LADDER, RIGHT_DOOR]
         self.goals_set_small = [LOWER_RIGHT_LADDER_SMALL, KEY_SMALL, LOWER_RIGHT_LADDER_SMALL, RIGHT_DOOR_SMALL]

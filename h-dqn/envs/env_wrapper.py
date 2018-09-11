@@ -136,11 +136,10 @@ class WarpFrame(gym.ObservationWrapper):
         gym.ObservationWrapper.__init__(self, env)
         self.width = 84
         self.height = 84
+        self.is_goal_env = isinstance(env.unwrapped, gym.GoalEnv)
 
         # HACK only for goal Env
-        if isinstance(env.unwrapped, gym.GoalEnv):
-            import copy
-            origin_dict = copy.deepcopy(env.observation_space)
+        if self.is_goal_env:
             resized_observation = spaces.Box(low=0, high=255,
                 shape=(self.height, self.width, 1), dtype=np.uint8)
             
@@ -154,10 +153,24 @@ class WarpFrame(gym.ObservationWrapper):
             self.observation_space = spaces.Box(low=0, high=255,
                 shape=(self.height, self.width, 1), dtype=np.uint8)
 
-    def observation(self, frame):
+    def observation(self, ob):
+        # HACK: we know goal env always have a dict
+        if self.is_goal_env:
+            frame = ob['observation']
+        else:
+            frame = ob
+        
+
         frame = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
         frame = cv2.resize(frame, (self.width, self.height), interpolation=cv2.INTER_AREA)
-        return frame[:, :, None]
+        frame = frame[:, :, None]
+
+        if self.is_goal_env:
+            return {'observation': frame, 
+            'achieved_goal': ob['achieved_goal'], 
+            'desired_goal': ob['desired_goal']}
+
+        return frame
 
 class FrameStack(gym.Wrapper):
     def __init__(self, env, k):
@@ -172,8 +185,10 @@ class FrameStack(gym.Wrapper):
         gym.Wrapper.__init__(self, env)
         self.k = k
         self.frames = deque([], maxlen=k)
+        self.is_goal_env = isinstance(env.unwrapped, gym.GoalEnv)
         # HACK only for goal Env
-        if isinstance(env.unwrapped, gym.GoalEnv):
+        if self.is_goal_env:
+            # we know goal env always have observation
             observation = env.observation_space.spaces['observation']
             shp = observation.shape
             resized_observation = spaces.Box(low=0, high=255,
@@ -202,14 +217,15 @@ class FrameStack(gym.Wrapper):
 
     def _get_ob(self):
         assert len(self.frames) == self.k
-        return LazyFrames(list(self.frames))
+        return LazyFrames(list(self.frames), self.is_goal_env)
 
 class ScaledFloatFrame(gym.ObservationWrapper):
     def __init__(self, env):
         gym.ObservationWrapper.__init__(self, env)
+        self.is_goal_env = isinstance(env.unwrapped, gym.GoalEnv)
 
         # HACK only for goal Env
-        if isinstance(env.unwrapped, gym.GoalEnv):
+        if self.is_goal_env:
             resized_observation = spaces.Box(low=0, high=1,
                 shape=env.observation_space.spaces['observation'].shape, dtype=np.float32)
             
@@ -223,12 +239,25 @@ class ScaledFloatFrame(gym.ObservationWrapper):
             self.observation_space = gym.spaces.Box(low=0, high=1, shape=env.observation_space.shape, dtype=np.float32)
 
     def observation(self, observation):
+        if self.is_goal_env:
+            ob = observation['observation']
+        else:
+            ob = observation
+        
         # careful! This undoes the memory optimization, use
         # with smaller replay buffers only.
-        return np.array(observation).astype(np.float32) / 255.0
+        ob = np.array(ob).astype(np.float32) / 255.0
+
+        if self.is_goal_env:
+            return {
+                'observation': ob,
+                'achieved_goal': observation['achieved_goal'],
+                'desired_goal': observation['desired_goal']
+            }
+        return ob
 
 class LazyFrames(object):
-    def __init__(self, frames):
+    def __init__(self, frames, is_dict=False):
         """This object ensures that common frames between the observations are only stored once.
         It exists purely to optimize memory usage which can be huge for DQN's 1M frames replay
         buffers.
@@ -238,17 +267,32 @@ class LazyFrames(object):
         You'd not believe how complex the previous solution was."""
         self._frames = frames
         self._out = None
+        self._is_dict = is_dict # HACK: goal env only.
 
     def _force(self):
         if self._out is None:
-            self._out = np.concatenate(self._frames, axis=2)
+            if self._is_dict:
+                frames = ([ self._frames[i]['observation'] for i in range(len(self._frames))])
+                frames = np.array(frames)
+                frames = np.concatenate(frames, axis=2)
+                # HACK: for now just take the last...
+                achieved_goal = self._frames[-1]['achieved_goal']
+                desired_goal = self._frames[-1]['desired_goal']
+                self._out = {'observation': frames,
+                             'achieved_goal': achieved_goal,
+                             'desired_goal': desired_goal}
+            else:
+                self._out = np.concatenate(self._frames, axis=2)
             self._frames = None
         return self._out
 
     def __array__(self, dtype=None):
         out = self._force()
         if dtype is not None:
-            out = out.astype(dtype)
+            if not self._is_dict:
+                out = out.astype(dtype)
+            else:
+                out = np.array(out)
         return out
 
     def __len__(self):
