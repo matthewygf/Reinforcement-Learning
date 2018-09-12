@@ -45,7 +45,7 @@ def main(_):
     #visualizer.initialize(log_dir, None)
     saved_mean_reward = None
     # openAI logger
-    L.configure(monitor.log_dir, format_strs=['stdout', 'log', 'csv'])
+    L.configure(monitor.log_dir, format_strs=['stdout', 'csv'])
 
     # initialize env
     atari_env = AtariEnv(monitor)
@@ -77,11 +77,11 @@ def main(_):
     metacontroller_replay_buffer = ReplayBuffer(D2_MEMORY_SIZE)
     
     total_extrinsic_reward = []
-    total_intrinsic_reward = []
     total_steps_in_episode = []
     # for success rate
     total_goal_reached = np.zeros(num_goals, dtype=np.int32) 
     total_goal_sampled = np.zeros(num_goals, dtype=np.int32)
+    total_goal_epsilon = np.ones(num_goals, dtype=np.float32)
     ep = 0
     init_ob = env.reset()
 
@@ -162,7 +162,6 @@ def main(_):
                 # its fine, we aren't really training meta dqn until after certain steps.
                 sess.run(metacontroller.network.update_target_op)
 
-            total_intrinsic_reward.append(intrinsic_reward_t)
             extrinsic_rewards += extrinsic_reward_t
             ob_with_g = ob_with_g_tp1
             done = done_t
@@ -220,21 +219,20 @@ def main(_):
         L.log('restored model with mean reward: %d' % saved_mean_reward)
         U.load_variables(model_file)
 
-def get_epsilon(total_goal_reached, total_goal_sampled, desired_goal, step, warmup):
+def get_epsilon(total_goal_epsilon, total_goal_reached, total_goal_sampled, desired_goal, step, warmup):
     """anneal epsilon with respect to average success rate
       if we have 100 percent success rate, we decrease 0.1,
       if we have less percent success rate, then we want to decrease less than 0.1
       and we clip to 0.02
       also we only start to anneal when we have done a number of warming up
     """
-    exploration = 1.0
     if step <= warmup:
-      return exploration
+        return total_goal_epsilon[desired_goal]
     num_samples = total_goal_sampled[desired_goal]
     num_goal_reached = total_goal_reached[desired_goal]
     success_rate = num_goal_reached / num_goal_reached
-    exploration -= EXPLORATION_FRACTION * success_rate 
-    return np.maximum(exploration, EXPLORATION_FINAL_EPS)
+    total_goal_epsilon[desired_goal] -= EXPLORATION_FRACTION * success_rate 
+    return np.maximum(total_goal_epsilon[desired_goal], EXPLORATION_FINAL_EPS)
 
 
 def screen_shot_subgoal(env, use_small=False):
