@@ -104,11 +104,8 @@ def main(_):
 
     while ep < MAX_EPISODE: # count number of steps 
         # init environment game play variables
-        extrinsic_rewards = 0
-        goals_reached = 0
         
         init_ob = env.reset()
-
         observation = np.reshape(init_ob['observation'], (1, )+init_ob['observation'].shape)
         desired_goal = metacontroller.sample_act(sess, observation, update_eps=1.0)[0]
         env.unwrapped.desired_goal = desired_goal
@@ -127,72 +124,75 @@ def main(_):
         done = False
         reached_goal = False
 
-        while not (done or reached_goal):
-            update_eps1_with_respect_to_g = get_epsilon(total_goal_epsilon, total_goal_reached, total_goal_sampled, desired_goal, total_step, EXPLORATION_WARM_UP)
-            ob_with_g_reshaped = np.reshape(ob_with_g, (1, )+ob_with_g.shape)
-            primitive_action_t = controller.sample_act(sess, ob_with_g_reshaped, update_eps=update_eps1_with_respect_to_g)[0]
-            # obtain extrinsic reward from environment
-            ob_tp1, extrinsic_reward_t, done_t, info = env.step(primitive_action_t)
-            reached_goal = env.unwrapped.reached_goal(desired_goal)
-            ob_with_g_tp1 = env.unwrapped._add_goal_mask(ob_tp1['observation'], desired_goal)
-            
-            intrinsic_reward_t = critic.criticize(desired_goal, reached_goal, primitive_action_t, done_t)
-            controller_replay_buffer.add(ob_with_g, primitive_action_t, intrinsic_reward_t, ob_with_g_tp1, done_t)
-            
-            # sample from replay_buffer1 to train controller
-            obs_with_g_t, primitive_actions_t, intrinsic_rewards_t, obs_with_g_tp1, dones_t = controller_replay_buffer.sample(TRAIN_BATCH_SIZE)
-            weights, batch_idxes = np.ones_like(intrinsic_rewards_t), None
-            # get q estimate for tp1 as 'supervised'
-            ob_with_g_tp1_reshaped = np.reshape(ob_with_g_tp1, (1, )+ob_with_g.shape)
-            q_tp1 = controller.get_q(sess, ob_with_g_tp1_reshaped)[0]
-            td_error = controller.train(sess, obs_with_g_t, primitive_actions_t, intrinsic_rewards_t, obs_with_g_tp1, dones_t, weights, q_tp1)
-            # join train meta-controller only sample from replay_buffer2 to train meta-controller
-            if total_step >= WARMUP_STEPS:
-                L.log('join train has started ----- step %d', total_step)
-                # sample from replay_buffer2 to train meta-controller
-                init_obs, goals_t, extrinsic_rewards_t, obs_terminate_in_g, dones_t = metacontroller_replay_buffer.sample(TRAIN_BATCH_SIZE)
-                weights, batch_idxes = np.ones_like(extrinsic_rewards_t), None
+        while not done:
+            extrinsic_rewards = 0
+            s0 = init_ob['observation']
+
+            while not (done or reached_goal):
+                update_eps1_with_respect_to_g = get_epsilon(total_goal_epsilon, total_goal_reached, total_goal_sampled, desired_goal, total_step, EXPLORATION_WARM_UP)
+                ob_with_g_reshaped = np.reshape(ob_with_g, (1, )+ob_with_g.shape)
+                primitive_action_t = controller.sample_act(sess, ob_with_g_reshaped, update_eps=update_eps1_with_respect_to_g)[0]
+                # obtain extrinsic reward from environment
+                ob_tp1, extrinsic_reward_t, done_t, info = env.step(primitive_action_t)
+                reached_goal = env.unwrapped.reached_goal(desired_goal)
+                ob_with_g_tp1 = env.unwrapped._add_goal_mask(ob_tp1['observation'], desired_goal)
+                
+                intrinsic_reward_t = critic.criticize(desired_goal, reached_goal, primitive_action_t, done_t)
+                controller_replay_buffer.add(ob_with_g, primitive_action_t, intrinsic_reward_t, ob_with_g_tp1, done_t)
+                
+                # sample from replay_buffer1 to train controller
+                obs_with_g_t, primitive_actions_t, intrinsic_rewards_t, obs_with_g_tp1, dones_t = controller_replay_buffer.sample(TRAIN_BATCH_SIZE)
+                weights, batch_idxes = np.ones_like(intrinsic_rewards_t), None
                 # get q estimate for tp1 as 'supervised'
-                obs_terminate_in_g_reshaped = np.reshape(obs_terminate_in_g, (1, )+obs_terminate_in_g.shape)
-                q_tp1 = metacontroller.get_q(sess, obs_terminate_in_g_reshaped)[0]
-                td_error = metacontroller.train(sess, init_obs, goals_t, extrinsic_rewards_t, obs_terminate_in_g, dones_t, weights, q_tp1)
+                ob_with_g_tp1_reshaped = np.reshape(ob_with_g_tp1, (1, )+ob_with_g.shape)
+                q_tp1 = controller.get_q(sess, ob_with_g_tp1_reshaped)[0]
+                td_error = controller.train(sess, obs_with_g_t, primitive_actions_t, intrinsic_rewards_t, obs_with_g_tp1, dones_t, weights, q_tp1)
+                # join train meta-controller only sample from replay_buffer2 to train meta-controller
+                if total_step >= WARMUP_STEPS:
+                    L.log('join train has started ----- step %d', total_step)
+                    # sample from replay_buffer2 to train meta-controller
+                    init_obs, goals_t, extrinsic_rewards_t, obs_terminate_in_g, dones_t = metacontroller_replay_buffer.sample(TRAIN_BATCH_SIZE)
+                    weights, batch_idxes = np.ones_like(extrinsic_rewards_t), None
+                    # get q estimate for tp1 as 'supervised'
+                    obs_terminate_in_g_reshaped = np.reshape(obs_terminate_in_g, (1, )+obs_terminate_in_g.shape)
+                    q_tp1 = metacontroller.get_q(sess, obs_terminate_in_g_reshaped)[0]
+                    td_error = metacontroller.train(sess, init_obs, goals_t, extrinsic_rewards_t, obs_terminate_in_g, dones_t, weights, q_tp1)
 
-            if total_step % UPDATE_TARGET_NETWORK_FREQ == 0:
-                #L.log('UPDATE BOTH CONTROLLER Q NETWORKS ----- step %d', step)
-                sess.run(controller.network.update_target_op)
-                # its fine, we aren't really training meta dqn until after certain steps.
-                sess.run(metacontroller.network.update_target_op)
+                if total_step % UPDATE_TARGET_NETWORK_FREQ == 0:
+                    #L.log('UPDATE BOTH CONTROLLER Q NETWORKS ----- step %d', step)
+                    sess.run(controller.network.update_target_op)
+                    # its fine, we aren't really training meta dqn until after certain steps.
+                    sess.run(metacontroller.network.update_target_op)
 
-            extrinsic_rewards += extrinsic_reward_t
-            ob_with_g = ob_with_g_tp1
-            done = done_t
-            total_step += 1
-        # we are done / reached_goal
-        # store transitions of init_ob, goal, all the extrinsic rewards, current ob in D2
-        # print("ep %d : step %d, goal extrinsic total %d" % (ep, step, extrinsic_rewards))
-        # clean observation without goal encoded
-        metacontroller_replay_buffer.add(init_ob['observation'], desired_goal, extrinsic_rewards, ob_tp1['observation'], done)
+                extrinsic_rewards += extrinsic_reward_t
+                ob_with_g = ob_with_g_tp1
+                done = done_t
+                total_step += 1
+            # we are done / reached_goal
+            # store transitions of init_ob, goal, all the extrinsic rewards, current ob in D2
+            # print("ep %d : step %d, goal extrinsic total %d" % (ep, step, extrinsic_rewards))
+            # clean observation without goal encoded
+            metacontroller_replay_buffer.add(init_ob['observation'], desired_goal, extrinsic_rewards, ob_tp1['observation'], done)
 
-        # if we are here then we have finished the desired goal
-        if not done:
-            goals_reached += 1
-            #print("ep %d : goal %d reached, not yet done, extrinsic %d" % (ep, desired_goal, extrinsic_rewards))
-            exploration_ep = 1.0
-            total_goal_reached[env.unwrapped.achieved_goal] += 1
-            if total_step >= WARMUP_STEPS:
-                t = total_step - WARMUP_STEPS
-                exploration_ep = exploration2.value(t)
-            ob_with_g_reshaped = np.reshape(ob_with_g, (1, )+ob_with_g.shape)
-            
-            while env.unwrapped.achieved_goal == desired_goal:
-                desired_goal = metacontroller.sample_act(sess, ob_with_g_reshaped, update_eps=exploration_ep)[0]
+            # if we are here then we have finished the desired goal
+            if not done:
+                #print("ep %d : goal %d reached, not yet done, extrinsic %d" % (ep, desired_goal, extrinsic_rewards))
+                exploration_ep = 1.0
+                total_goal_reached[env.unwrapped.achieved_goal] += 1
+                if total_step >= WARMUP_STEPS:
+                    t = total_step - WARMUP_STEPS
+                    exploration_ep = exploration2.value(t)
+                ob_with_g_reshaped = np.reshape(ob_with_g, (1, )+ob_with_g.shape)
+                
+                while env.unwrapped.achieved_goal == desired_goal:
+                    desired_goal = metacontroller.sample_act(sess, ob_with_g_reshaped, update_eps=exploration_ep)[0]
 
-            env.unwrapped.desired_goal = desired_goal
-            total_goal_sampled[desired_goal] += 1
-            L.log('ep %d : achieved goal was %d ----- new goal --- %d' % (ep, env.unwrapped.achieved_goal, desired_goal))
+                env.unwrapped.desired_goal = desired_goal
+                total_goal_sampled[desired_goal] += 1
+                L.log('ep %d : achieved goal was %d ----- new goal --- %d' % (ep, env.unwrapped.achieved_goal, desired_goal))
 
-            # start again
-            reached_goal = False
+                # start again
+                reached_goal = False
         
         # finish an episode
         total_extrinsic_reward.append(extrinsic_rewards)
