@@ -48,15 +48,20 @@ class MetaController(object):
                                         self.update_eps_t: update_eps})
         return goal
 
+    def get_q(self, sess, observation):
+        q = sess.run([self.network.q_out],
+                     feed_dict={self.network.obs_t_input: observation})
+        return q
 
-    def train(self, sess, observation_t, goal_t, extrinsic_reward_t, observation_tp1, done_t, importance_weights):
+    def train(self, sess, observation_t, goal_t, extrinsic_reward_t, observation_tp1, done_t, importance_weights, online_q_tp1):
         td_error, _ = sess.run([self.network.td_error, self.network.optimize_op], 
                                feed_dict={self.network.obs_t_input: observation_t,
                                           self.network.action_t: goal_t,
                                           self.network.reward_t: extrinsic_reward_t,
                                           self.network.obs_tp1_input: observation_tp1,
                                           self.network.importance_weights: importance_weights,
-                                          self.network.done_t: done_t})
+                                          self.network.done_t: done_t,
+                                          self.network.online_q_tp1: online_q_tp1})
         return td_error
 
 
@@ -108,15 +113,20 @@ class Controller(object):
                                         self.update_eps_t: update_eps})
         return action
 
+    def get_q(self, sess, observation):
+        q = sess.run([self.network.q_out],
+                     feed_dict={self.network.obs_t_input: observation})
+        return q
 
-    def train(self, sess, observation_t_with_g, primitive_action_t, intrinsic_reward_t, observation_tp1_with_g, done_t, importance_weights):
+    def train(self, sess, observation_t_with_g, primitive_action_t, intrinsic_reward_t, observation_tp1_with_g, done_t, importance_weights, online_q_tp1):
         td_error, _ = sess.run([self.network.td_error, self.network.optimize_op], 
                                feed_dict={self.network.obs_t_input: observation_t_with_g,
                                           self.network.action_t: primitive_action_t,
                                           self.network.reward_t: intrinsic_reward_t,
                                           self.network.obs_tp1_input: observation_tp1_with_g,
                                           self.network.importance_weights: importance_weights,
-                                          self.network.done_t: done_t})
+                                          self.network.done_t: done_t,
+                                          self.network.online_q_tp1: online_q_tp1})
         return td_error
 
 

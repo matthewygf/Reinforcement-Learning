@@ -13,8 +13,13 @@ tf.app.flags.DEFINE_string('game_name', 'montezuma_revenge',
 tf.app.flags.DEFINE_integer('num_timesteps', int(2e6),
                             """total num of timesteps""")
 
+tf.app.flags.DEFINE_integer('ckpt_freq', int(1e4),
+                            """when to ckpt our model""")
+
+tf.app.flags.DEFINE_integer('print_freq', int(20),
+                            """when to ckpt our model""")
+
 # GOALS DEFINED
-# TODO: how do we spot goals ?! 
 # in 210, 160 pixels 
 LOWER_RIGHT_LADDER = [(131, 172), (140, 178)]
 KEY = [(12, 100), (24, 120)]
@@ -32,6 +37,8 @@ class Monitor(object):
         self.ckpt_dir = self.params.ckpt_dir
         self.game_name = self.params.game_name
         self.num_timesteps = self.params.num_timesteps
+        self.ckpt_freq = self.params.ckpt_freq
+        self.print_freq = self.params.print_freq
 
         self.goals_set_large = [LOWER_RIGHT_LADDER, KEY, LOWER_RIGHT_LADDER, RIGHT_DOOR]
         self.goals_set_small = [LOWER_RIGHT_LADDER_SMALL, KEY_SMALL, LOWER_RIGHT_LADDER_SMALL, RIGHT_DOOR_SMALL]

@@ -30,7 +30,7 @@ class Q_network(object):
             self.reward_t = tf.placeholder(tf.float32, shape=[None], name='reward')
             self.obs_tp1_input = tf.placeholder(tf.float32, shape=(None, )+ob.shape, name='obs_tp1')
             self.done_t = tf.placeholder(tf.float32, shape=[None], name='done')
-            self.importance_weight = tf.placeholder(tf.float32, shape=[None], name='weight')
+            self.importance_weights = tf.placeholder(tf.float32, shape=[None], name='weight')
 
             # build online q network
             with tf.variable_scope('online_q', reuse=tf.AUTO_REUSE):
@@ -95,12 +95,12 @@ class Q_network(object):
                     self.q_out_t = action_scores_t
 
             # receive online qnetwork estimate for the next state 
-            self.online_q_target = tf.placeholder(shape=self.q_out.shape, dtype=tf.float32)
+            self.online_q_tp1 = tf.placeholder(shape=self.q_out.shape, dtype=tf.float32)
             # calculate the q_value for our actual action
             self.q_t_selected = tf.reduce_sum(self.q_out * tf.one_hot(self.action_t, num_outputs), 1)
 
             if double:
-                q_tp1_with_online = tf.argmax(self.online_q_target, 1)
+                q_tp1_with_online = tf.argmax(self.online_q_tp1, 1)
                 q_tp1_best = tf.reduce_sum(self.q_out_t * tf.one_hot(q_tp1_with_online, num_outputs), 1)
             else:
                 q_tp1_best = tf.reduce_max(self.q_out_t, 1)
@@ -114,7 +114,7 @@ class Q_network(object):
             # actual q value - return q value from environment and discounted
             self.td_error = self.q_t_selected - q_t_selected_target
             errors = U.huber_loss(self.td_error)
-            weighted_error = tf.reduce_mean(self.importance_weight * errors)
+            weighted_error = tf.reduce_mean(self.importance_weights * errors)
 
             # we are just under our default scope name
             online_q_vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name + '/online_q')
