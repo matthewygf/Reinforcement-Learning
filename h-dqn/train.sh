@@ -1,1 +1,1 @@
-python main.py --log_dir=/Users/gingfungyeung/dev/log/mr --ckpt_dir=/Users/gingfungyeung/dev/ckpt/mr
+python main.py --log_dir=/home/metalabadmin/exp/log/mr --ckpt_dir=/home/metalabadmin/exp/ckpt/mr --ckpt_freq=1000

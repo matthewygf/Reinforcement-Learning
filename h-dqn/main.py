@@ -29,7 +29,7 @@ LEARNING_RATE = 5e-4
 MAX_EPISODE = 9999999
 EXPLORATION_FRACTION = 0.1
 EXPLORATION_FINAL_EPS = 0.02
-
+EXPLORATION_WARM_UP = 1e6
 # in the paper, warm up steps are for lower level controller 
 # to learn how to solve a particular goal
 # effectively pretrained.
@@ -62,10 +62,7 @@ def main(_):
     controller_optimizer = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE)
     controller_network = Q_network(env.observation_space, env.action_space.n, controller_optimizer, scope='controller')
     controller = Controller(controller_network, env.action_space.n)
-    # Create the schedule for exploration starting from 1.
-    exploration = LinearSchedule(schedule_timesteps=int(EXPLORATION_FRACTION * monitor.num_timesteps),
-                                 initial_p=1.0,
-                                 final_p=EXPLORATION_FINAL_EPS)
+
     # create q networks for meta-controller
     num_goals = env.unwrapped.goals_space.n
     metacontroller_optimizer = tf.train.AdamOptimizer(learning_rate=LEARNING_RATE)
@@ -82,6 +79,9 @@ def main(_):
     total_extrinsic_reward = []
     total_intrinsic_reward = []
     total_steps_in_episode = []
+    # for success rate
+    total_goal_reached = np.zeros(num_goals, dtype=np.int32) 
+    total_goal_sampled = np.zeros(num_goals, dtype=np.int32)
     ep = 0
     init_ob = env.reset()
 
@@ -110,6 +110,7 @@ def main(_):
         observation = np.reshape(init_ob['observation'], (1, )+init_ob['observation'].shape)
         desired_goal = metacontroller.sample_act(sess, observation, update_eps=1.0)[0]
         env.unwrapped.desired_goal = desired_goal
+        total_goal_sampled[desired_goal] += 1
 
         # given predicted goal, we encode this goal bounding mask to the observation np array
         ob_with_g = env.unwrapped._add_goal_mask(init_ob['observation'], desired_goal)
@@ -125,9 +126,9 @@ def main(_):
         reached_goal = False
 
         while not (done or reached_goal):
-            update_eps1 = exploration.value(step)
+            update_eps1_with_respect_to_g = get_epsilon(total_goal_reached, total_goal_sampled, desired_goal, step, EXPLORATION_WARM_UP)
             ob_with_g_reshaped = np.reshape(ob_with_g, (1, )+ob_with_g.shape)
-            primitive_action_t = controller.sample_act(sess, ob_with_g_reshaped, update_eps=update_eps1)[0]
+            primitive_action_t = controller.sample_act(sess, ob_with_g_reshaped, update_eps=update_eps1_with_respect_to_g)[0]
             # obtain extrinsic reward from environment
             ob_tp1, extrinsic_reward_t, done_t, info = env.step(primitive_action_t)
             reached_goal = env.unwrapped.reached_goal(desired_goal)
@@ -178,6 +179,7 @@ def main(_):
             goals_reached += 1
             #print("ep %d : goal %d reached, not yet done, extrinsic %d" % (ep, desired_goal, extrinsic_rewards))
             exploration_ep = 1.0
+            total_goal_reached[env.unwrapped.achieved_goal] += 1
             if step >= WARMUP_STEPS:
                 t = step - WARMUP_STEPS
                 exploration_ep = exploration2.value(t)
@@ -187,6 +189,7 @@ def main(_):
                 desired_goal = metacontroller.sample_act(sess, ob_with_g_reshaped, update_eps=exploration_ep)[0]
 
             env.unwrapped.desired_goal = desired_goal
+            total_goal_sampled[desired_goal] += 1
             L.log('ep %d : achieved goal was %d ----- new goal --- %d' % (ep, env.unwrapped.achieved_goal, desired_goal))
 
             # start again
@@ -216,6 +219,23 @@ def main(_):
     if model_saved:
         L.log('restored model with mean reward: %d' % saved_mean_reward)
         U.load_variables(model_file)
+
+def get_epsilon(total_goal_reached, total_goal_sampled, desired_goal, step, warmup):
+    """anneal epsilon with respect to average success rate
+      if we have 100 percent success rate, we decrease 0.1,
+      if we have less percent success rate, then we want to decrease less than 0.1
+      and we clip to 0.02
+      also we only start to anneal when we have done a number of warming up
+    """
+    exploration = 1.0
+    if step <= warmup:
+      return exploration
+    num_samples = total_goal_sampled[desired_goal]
+    num_goal_reached = total_goal_reached[desired_goal]
+    success_rate = num_goal_reached / num_goal_reached
+    exploration -= EXPLORATION_FRACTION * success_rate 
+    return np.maximum(exploration, EXPLORATION_FINAL_EPS)
+
 
 def screen_shot_subgoal(env, use_small=False):
     """
