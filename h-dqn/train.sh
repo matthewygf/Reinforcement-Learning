@@ -1,0 +1,1 @@
+python main.py --log_dir=/Users/gingfungyeung/dev/log/mr --ckpt_dir=/Users/gingfungyeung/dev/ckpt/mr
