@@ -126,7 +126,7 @@ def main(_):
         reached_goal = False
 
         while not (done or reached_goal):
-            update_eps1_with_respect_to_g = get_epsilon(total_goal_reached, total_goal_sampled, desired_goal, step, EXPLORATION_WARM_UP)
+            update_eps1_with_respect_to_g = get_epsilon(total_goal_epsilon, total_goal_reached, total_goal_sampled, desired_goal, step, EXPLORATION_WARM_UP)
             ob_with_g_reshaped = np.reshape(ob_with_g, (1, )+ob_with_g.shape)
             primitive_action_t = controller.sample_act(sess, ob_with_g_reshaped, update_eps=update_eps1_with_respect_to_g)[0]
             # obtain extrinsic reward from environment
