@@ -16,6 +16,9 @@ tf.app.flags.DEFINE_integer('num_timesteps', int(2e6),
 tf.app.flags.DEFINE_integer('ckpt_freq', int(1e4),
                             """when to ckpt our model""")
 
+tf.app.flags.DEFINE_bool('load_model', False,
+                            """whether to load model from ckpt_dir""")
+
 tf.app.flags.DEFINE_integer('print_freq', int(20),
                             """when to ckpt our model""")
 
@@ -39,6 +42,7 @@ class Monitor(object):
         self.num_timesteps = self.params.num_timesteps
         self.ckpt_freq = self.params.ckpt_freq
         self.print_freq = self.params.print_freq
+        self.load_model = self.params.load_model
 
         self.goals_set_large = [LOWER_RIGHT_LADDER, KEY, LOWER_RIGHT_LADDER, RIGHT_DOOR]
         self.goals_set_small = [LOWER_RIGHT_LADDER_SMALL, KEY_SMALL, LOWER_RIGHT_LADDER_SMALL, RIGHT_DOOR_SMALL]

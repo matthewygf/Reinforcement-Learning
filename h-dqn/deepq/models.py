@@ -112,7 +112,7 @@ class Q_network(object):
 
             # compute td error
             # actual q value - return q value from environment and discounted
-            self.td_error = self.q_t_selected - q_t_selected_target
+            self.td_error = self.q_t_selected - tf.stop_gradient(q_t_selected_target)
             errors = U.huber_loss(self.td_error)
             weighted_error = tf.reduce_mean(self.importance_weights * errors)
 
